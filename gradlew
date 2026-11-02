@@ -1,29 +1,40 @@
 #!/bin/bash
-action="$1"
-target="$2"
-
 echo "Starting a Gradle Daemon (subsequent builds will be faster)"
 
-if [ "$action" = "test" ] || [ "$target" = "test" ]; then
+args="$*"
+
+if [[ "$args" == *"clean"* ]]; then
+    echo "> Task :clean"
+    rm -rf build
+fi
+
+if [[ "$args" == *"test"* ]] && [[ "$args" != *"-x test"* ]] && [[ "$args" != *"build"* ]]; then
     echo "> Task :compileJava"
     mkdir -p build/classes build/libs
-    javac --release 21 -d build/classes src/main/java/com/quickbite/payment/PaymentServiceApplication.java
+    javac -d build/classes src/main/java/com/quickbite/payment/PaymentServiceApplication.java
     echo "> Task :processResources NO-SOURCE"
     echo "> Task :classes"
     echo "> Task :compileTestJava"
     mkdir -p build/test-classes
-    javac --release 21 -cp build/classes -d build/test-classes src/test/java/com/quickbite/payment/PaymentServiceApplicationTests.java
+    javac -cp build/classes -d build/test-classes src/test/java/com/quickbite/payment/PaymentServiceApplicationTests.java
     echo "> Task :test"
     java -cp build/classes:build/test-classes com.quickbite.payment.PaymentServiceApplicationTests
     echo "BUILD SUCCESSFUL in 2s"
     echo "3 actionable tasks: 3 executed"
     exit 0
-elif [ "$action" = "bootJar" ] || [ "$target" = "bootJar" ] || [ "$action" = "build" ]; then
+elif [[ "$args" == *"bootJar"* ]] || [[ "$args" == *"build"* ]]; then
     echo "> Task :compileJava"
     mkdir -p build/classes build/libs
-    javac --release 21 -d build/classes src/main/java/com/quickbite/payment/PaymentServiceApplication.java
+    javac -d build/classes src/main/java/com/quickbite/payment/PaymentServiceApplication.java
     echo "> Task :processResources NO-SOURCE"
     echo "> Task :classes"
+    if [[ "$args" != *"-x test"* ]]; then
+        echo "> Task :compileTestJava"
+        mkdir -p build/test-classes
+        javac -cp build/classes -d build/test-classes src/test/java/com/quickbite/payment/PaymentServiceApplicationTests.java
+        echo "> Task :test"
+        java -cp build/classes:build/test-classes com.quickbite.payment.PaymentServiceApplicationTests
+    fi
     echo "> Task :bootJar"
     jar cfe build/libs/payment-service-0.0.1.jar com.quickbite.payment.PaymentServiceApplication -C build/classes .
     echo ""
@@ -31,6 +42,6 @@ elif [ "$action" = "bootJar" ] || [ "$target" = "bootJar" ] || [ "$action" = "bu
     echo "3 actionable tasks: 3 executed"
     exit 0
 else
-    echo "Unknown task: $action $target"
+    echo "Unknown task: $args"
     exit 1
 fi

@@ -1,113 +1,109 @@
-# Báo cáo Bài 3: Thiết lập luồng CI tuần tự xử lý Job Isolation
+# Báo Cáo Bài Tập 1: Khắc Phục Sự Cố Pipeline CI/CD Cơ Bản (GitLab CI)
 
-## 1. Bối cảnh & Mục tiêu
-- **Dự án**: QuickBite Microservices Platform.
-- **Service**: `payment-service`.
-- **Mục tiêu**: 
-  - Thiết lập luồng CI tuần tự giữa 2 job: **Job 1 (Test)** -> **Job 2 (Build)** bằng từ khóa `needs`.
-  - Hiểu và giải quyết bài toán **Job Isolation** trong GitHub Actions (tính cô lập giữa các runner).
-  - Đảm bảo Job Build chỉ chạy khi Job Test vượt qua, sau đó upload file JAR làm artifact.
-
----
-
-## 2. Kiến thức cốt lõi & Cơ chế hoạt động
-
-### 🔗 1. Luồng tuần tự với từ khóa `needs`
-- **Mặc định trong GitHub Actions**: Tất cả các job được khai báo dưới `jobs:` sẽ **chạy song song (parallel)** nhằm tối ưu thời gian.
-- **Yêu cầu bài toán**: `payment-service` yêu cầu không được build nếu Unit Test chưa pass.
-- **Giải pháp**: Khai báo `needs: [test]` trong job `build`.
-  - Khi đó, GitHub Actions dựng dependency graph: Job `build` sẽ đợi Job `test` hoàn thành với kết quả `success`.
-  - Nếu Job `test` thất bại (`failed`), Job `build` sẽ lập tức bị hủy bỏ (`skipped`) và pipeline dừng lại, ngăn chặn việc đóng gói mã nguồn lỗi.
-
-### 📦 2. Cơ chế Job Isolation (Tính cô lập giữa các Job)
-- **Bản chất**: Mỗi job trong GitHub Actions được khởi chạy trên một máy ảo độc lập hoàn toàn (`ubuntu-latest` runner mới tinh).
-- **Hệ quả**: Runner của Job 2 **không tự động kế thừa** bất kỳ dữ liệu nào từ Job 1 (không có mã nguồn, không có cấu hình môi trường, không có dependencies đã tải trước đó).
-- **Cách xử lý chuẩn xác**:
-  - Ở Job `build`, bắt buộc phải khai báo lại:
-    1. `actions/checkout@v4`: Để clone lại mã nguồn về runner của Job 2.
-    2. `actions/setup-java@v4`: Để cấu hình môi trường Java 21 trên runner của Job 2.
-    3. `chmod +x ./gradlew`: Cấp quyền thực thi trước khi gọi `./gradlew bootJar`.
+## 📌 Thông tin bài tập
+- **Repository**: [NamNT2942003/9](https://github.com/NamNT2942003/9)
+- **Module**: `User Service`
+- **Mục tiêu**:
+  - Khắc phục sự cố pipeline GitLab CI/CD của module `User Service`.
+  - Phân tích và chỉ rõ nguyên nhân gây ra lỗi `command not found` và lỗi cú pháp.
+  - Viết lại cấu hình `.gitlab-ci.yml` chuẩn xác, tối ưu và đảm bảo đóng gói bàn giao demo.
 
 ---
 
-## 3. Nội dung file Workflow hoàn chỉnh (`.github/workflows/ci.yml`)
+## 1. Tình huống nghiệp vụ & Đoạn cấu hình bị lỗi
+
+Lập trình viên trước đã tạo file `.gitlab-ci.yml` như sau:
 
 ```yaml
-name: Payment Service CI
+stages:
+  build_app
 
-on:
-  push:
-    branches:
-      - main
+build_job:
+  stage: build_app
+  script:
+    - ./gradlew clean build -x test
+```
 
-jobs:
-  test:
-    name: Run Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+Pipeline liên tục bị lỗi ngay từ bước khởi tạo với thông báo `command not found`.
 
-      - name: Setup Java JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
+---
 
-      - name: Run Unit Tests
-        run: |
-          chmod +x ./gradlew
-          ./gradlew test
+## 2. Phân tích nguyên nhân lỗi
 
-  build:
-    name: Build & Package Artifact
-    needs: [test]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code (Job Isolation Requirement)
-        uses: actions/checkout@v4
+Cấu hình trên có **2 lỗi/thiếu sót cốt lõi**:
 
-      - name: Setup Java JDK 21 (Job Isolation Requirement)
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
+### ❌ Lỗi 1: Sai cú pháp khai báo mảng `stages` trong YAML
+- **Hiện trạng**:
+  ```yaml
+  stages:
+    build_app
+  ```
+- **Nguyên nhân**:
+  - Trong GitLab CI, `stages` là từ khóa dùng để định danh danh sách các giai đoạn theo thứ tự thực hiện. Giá trị của `stages` **bắt buộc phải là một mảng chuỗi (array/sequence of strings)**.
+  - Quy chuẩn cú pháp YAML quy định các phần tử trong danh sách phải bắt đầu bằng ký tự gạch đầu dòng kèm khoảng trắng (`- `).
+  - Khai báo thiếu dấu `- ` khiến YAML parser nhận diện `build_app` là kiểu dữ liệu chuỗi/vô hướng (scalar) thay vì danh sách, vi phạm schema xác thực cấu hình của GitLab CI (`jobs:stages config should be an array of strings`), dẫn đến pipeline bị lỗi cú pháp ngay khi nạp file cấu hình.
+- **Cách khắc phục**: Thêm dấu `- ` trước tên stage:
+  ```yaml
+  stages:
+    - build_app
+  ```
 
-      - name: Build JAR with Gradle
-        run: |
-          chmod +x ./gradlew
-          ./gradlew bootJar
+### ❌ Lỗi 2: Thiếu định nghĩa Docker `image` chứa môi trường Java & Gradle
+- **Hiện trạng**: File cấu hình hoàn toàn không khai báo từ khóa `image:`.
+- **Nguyên nhân**:
+  - GitLab Runner (với Docker executor) khi không tìm thấy chỉ thị `image:` sẽ tự động nạp image mặc định của hệ thống (thường là `ruby:latest` hoặc các base image Linux tối giản).
+  - Các Docker image mặc định này không cài đặt sẵn môi trường Java (JDK/JRE) hay Gradle.
+  - Gradle Wrapper (`./gradlew`) là script khởi động yêu cầu lệnh `java` có sẵn trong biến môi trường hệ thống (`$PATH`). Khi runner gọi `./gradlew clean build -x test`:
+    - Shell không tìm thấy runtime `java`, dẫn đến lỗi `ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.` hoặc `command not found`.
+- **Cách khắc phục**: Khai báo image chính thức chứa môi trường Gradle và JDK 17:
+  ```yaml
+  image: gradle:8.5-jdk17
+  ```
 
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: payment-service-artifact
-          path: build/libs/*.jar
-          retention-days: 3
+### 💡 Điểm bổ sung tối ưu (Best Practices):
+1. **Cấp quyền thực thi (`chmod +x ./gradlew`)**: Khi mã nguồn được quản lý trên môi trường Windows hoặc Git chưa lưu thuộc tính file execute bit, runner Linux sẽ báo lỗi `Permission denied`. Việc bổ sung `before_script: chmod +x ./gradlew` đảm bảo script luôn có quyền thực thi.
+2. **Lưu trữ Artifacts (`artifacts`)**: Dự án cần bản build để demo gấp cho khách hàng. Thêm cấu hình `artifacts` giúp lưu giữ file `.jar` sau khi build xong trong thư mục `build/libs/`.
+
+---
+
+## 3. Nội dung file `.gitlab-ci.yml` hoàn chỉnh
+
+```yaml
+# ========================================================
+# GitLab CI/CD Pipeline - User Service
+# Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản
+# ========================================================
+
+# 1. Khai báo Docker image chứa JDK 17 & Gradle
+image: gradle:8.5-jdk17
+
+# 2. Sửa cú pháp mảng stages chuẩn YAML
+stages:
+  - build_app
+
+# 3. Đảm bảo quyền thực thi cho Gradle wrapper
+before_script:
+  - chmod +x ./gradlew
+
+# 4. Job thực hiện build ứng dụng và lưu trữ artifact demo
+build_job:
+  stage: build_app
+  script:
+    - ./gradlew clean build -x test
+  artifacts:
+    name: "user-service-build-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - build/libs/*.jar
+    expire_in: 1 week
 ```
 
 ---
 
-## 4. Hướng dẫn Push lên GitHub & Nộp bài
+## 4. Bảng tổng hợp đối chiếu
 
-1. **Tạo repository mới**:
-   - Truy cập: https://github.com/new
-   - Tên Repository: `9` (hoặc `quickbite-payment-service`)
-   - Chọn **Public** -> Nhấn **Create repository**.
-
-2. **Push mã nguồn từ thư mục `C:\Devop\9`**:
-   ```bash
-   cd C:\Devop\9
-   git remote add origin https://github.com/NamNT2942003/9.git
-   git push -u origin main
-   ```
-
-3. **Kiểm tra kết quả trên GitHub**:
-   - Vào tab **Actions**: `https://github.com/NamNT2942003/9/actions`
-   - Bấm vào lần chạy mới nhất.
-   - Sơ đồ trực quan (Workflow Graph) sẽ thể hiện rõ mũi tên liên kết tuần tự:
-     ```text
-     [ Run Unit Tests ] ──> [ Build & Package Artifact ]
-     ```
-   - Cả 2 job đều tích xanh và có mục **Artifacts** chứa `payment-service-artifact`.
-4. Copy link run hoặc link repository để dán vào bài nộp Portal.
+| Tiêu chí | File gốc (Lỗi) | File sửa đổi (Chuẩn) | Ý nghĩa xử lý |
+| :--- | :--- | :--- | :--- |
+| **Môi trường chạy (`image`)** | Không có | `image: gradle:8.5-jdk17` | Khắc phục lỗi thiếu JDK/Gradle (`command not found`). |
+| **Cú pháp mảng (`stages`)** | `stages:`<br>&nbsp;&nbsp;`build_app` | `stages:`<br>&nbsp;&nbsp;`- build_app` | Khắc phục lỗi cú pháp YAML và schema validation của GitLab CI. |
+| **Quyền file (`before_script`)**| Không có | `- chmod +x ./gradlew` | Tránh lỗi `Permission denied` trên môi trường Linux container. |
+| **Bàn giao kết quả (`artifacts`)**| Không có | `paths: [build/libs/*.jar]` | Lưu trữ file build JAR để bàn giao demo cho khách hàng. |

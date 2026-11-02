@@ -1,0 +1,27 @@
+# ========================================================
+# GitLab CI/CD Pipeline - User Service
+# Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản
+# ========================================================
+
+# 1. Định nghĩa Docker image chứa môi trường Java JDK 17 và Gradle
+# Khắc phục lỗi: GitLab Runner mặc định không có môi trường Java/Gradle gây lỗi "command not found"
+image: gradle:8.5-jdk17
+
+# 2. Định nghĩa danh sách các stages theo đúng chuẩn cú pháp mảng YAML (bắt đầu bằng dấu - )
+stages:
+  - build_app
+
+# 3. Cấp quyền thực thi cho file gradlew trước khi chạy script
+before_script:
+  - chmod +x ./gradlew
+
+# 4. Job thực hiện build ứng dụng
+build_job:
+  stage: build_app
+  script:
+    - ./gradlew clean build -x test
+  artifacts:
+    name: "user-service-build-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - build/libs/*.jar
+    expire_in: 1 week
