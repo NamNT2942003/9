@@ -12,6 +12,7 @@
 2. [Bài tập 2: Container hóa ứng dụng Spring Boot Microservices (Dockerfile)](#-bài-tập-2-container-hóa-ứng-dụng-spring-boot-microservices-dockerfile)
 3. [Bài tập 3: Xây dựng Pipeline CI/CD kết nối PostgreSQL (GitLab CI Services)](#-bài-tập-3-xây-dựng-pipeline-cicd-kết-nối-postgresql-gitlab-ci-services)
 4. [Bài tập 4: Đẩy Docker Image lên Docker Hub thông qua GitLab CI (DinD)](#-bài-tập-4-đẩy-docker-image-lên-docker-hub-thông-qua-gitlab-ci-dind)
+5. [Bài tập 5: Tối ưu hoá quy trình CI/CD với Multi-stage Build bằng Gradle](#-bài-tập-5-tối-ưu-hoá-quy-trình-cicd-với-multi-stage-build-bằng-gradle)
 
 ---
 
@@ -28,24 +29,10 @@
 
 ## 🐳 Bài tập 2: Container hóa ứng dụng Spring Boot Microservices (Dockerfile)
 
-> Chi tiết xem tại file: [BAITAP2_GIAI_THICH.md](./BAITAP2_GIAI_THICH.md) và file [`Dockerfile`](./Dockerfile)
+> Chi tiết xem tại file: [BAITAP2_GIAI_THICH.md](./BAITAP2_GIAI_THICH.md)
 
-```dockerfile
-# 1. Chọn base image chứa JRE 17 gọn nhẹ
-FROM eclipse-temurin:17-jre-alpine
-
-# 2. Tạo thư mục làm việc trong container
-WORKDIR /app
-
-# 3. Copy file jar từ thư mục build của Gradle vào container
-COPY build/libs/payment-service-1.0.0.jar app.jar
-
-# 4. Mở port 8080 để giao tiếp với các microservices khác
-EXPOSE 8080
-
-# 5. Lệnh khởi chạy ứng dụng Spring Boot
-ENTRYPOINT ["java", "-jar", "app.jar"]
-```
+- Điền các keyword chuẩn của Docker: `FROM`, `WORKDIR`, `COPY`, `EXPOSE`, `ENTRYPOINT`.
+- Sử dụng base image `eclipse-temurin:17-jre-alpine` để tối ưu kích thước ban đầu.
 
 ---
 
@@ -63,65 +50,39 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 
 > Chi tiết xem tại file: [BAITAP4_GIAI_THICH.md](./BAITAP4_GIAI_THICH.md) và file cấu hình [`.gitlab-ci.yml`](./.gitlab-ci.yml)
 
-### 1. Cấu hình Pipeline CI/CD hoàn chỉnh (3 Stages: Test ➔ Build ➔ Dockerize)
+- Cấu hình 3 stages: `test` ➔ `build` ➔ `dockerize`.
+- Sử dụng **Docker-in-Docker (DinD)** với `image: docker:24.0.5` và `services: - docker:24.0.5-dind`.
+- Bảo mật thông tin đăng nhập qua **CI/CD Variables** (`DOCKER_USERNAME`, `DOCKER_PASSWORD`) với tính năng **Mask variable**.
+- Gắn đồng thời tag commit `$CI_COMMIT_SHORT_SHA` và `latest`.
 
-```yaml
-stages:
-  - test
-  - build
-  - dockerize
+---
 
-test_job:
-  stage: test
-  image: gradle:7.6-jdk17
-  services:
-    - name: postgres:14-alpine
-      alias: postgres
-  variables:
-    POSTGRES_DB: hrm_db
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: password123
-    SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/hrm_db"
-    SPRING_DATASOURCE_USERNAME: "postgres"
-    SPRING_DATASOURCE_PASSWORD: "password123"
-  before_script:
-    - chmod +x ./gradlew
-  script:
-    - ./gradlew test
+## ⚡ Bài tập 5: Tối ưu hoá quy trình CI/CD với Multi-stage Build bằng Gradle
 
-build_job:
-  stage: build
-  image: gradle:7.6-jdk17
-  before_script:
-    - chmod +x ./gradlew
-  script:
-    - ./gradlew build -x test
-  artifacts:
-    name: "payment-service-build-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - build/libs/*.jar
-    expire_in: 1 day
+> Chi tiết xem tại file: [BAITAP5_GIAI_THICH.md](./BAITAP5_GIAI_THICH.md) và file [`Dockerfile`](./Dockerfile)
 
-dockerize_job:
-  stage: dockerize
-  image: docker:24.0.5
-  services:
-    - docker:24.0.5-dind
-  variables:
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_DRIVER: overlay2
-    IMAGE_NAME: "$DOCKER_USERNAME/payment-service"
-  dependencies:
-    - build_job
-  before_script:
-    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-  script:
-    - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" -t "$IMAGE_NAME:latest" .
-    - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
-    - docker push "$IMAGE_NAME:latest"
+### 1. Bảng so sánh Single-stage Build vs Multi-stage Build
+
+| Tiêu chí | Single-stage Build (Fat Container) | Multi-stage Build (Tối ưu) |
+| :--- | :--- | :--- |
+| **Dung lượng Image** | **~850MB - 1GB** | **~150MB - 180MB** (Giảm > 75%) |
+| **Bảo mật Source Code** | ❌ Lộ toàn bộ mã nguồn trong thư mục `src/` | ✅ Tuyệt đối không chứa source code |
+| **Môi trường Runtime** | Chứa cả compiler `javac`, `gradle`, build tools | Chỉ chứa `JRE 17` và thư viện Alpine tối giản |
+| **Attack Surface (CVEs)** | Rất lớn, nhiều lỗ hổng từ các package thừa | Cực nhỏ, giảm thiểu tối đa các cảnh báo bảo mật |
+| **Tốc độ Pull/Deploy** | Chậm, tốn nhiều băng thông mạng | Nhanh chóng, tiết kiệm tài nguyên hệ thống |
+
+### 2. Cấu trúc `Dockerfile` Multi-stage hoàn chỉnh
+```dockerfile
+# Stage 1: Builder
+FROM gradle:7.6-jdk17 AS builder
+WORKDIR /home/gradle/project
+COPY . .
+RUN chmod +x ./gradlew && ./gradlew clean build -x test
+
+# Stage 2: Runner
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+COPY --from=builder /home/gradle/project/build/libs/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
-
-### 2. Thiết lập CI/CD Variables trên GitLab
-- `DOCKER_USERNAME`: Tên đăng nhập Docker Hub (ví dụ `namnt2942003`).
-- `DOCKER_PASSWORD`: Personal Access Token từ Docker Hub (được cấu hình cờ **Masked** để ẩn trên log build).
-- **Link Docker Hub**: [https://hub.docker.com/r/namnt2942003/payment-service](https://hub.docker.com/r/namnt2942003/payment-service)
