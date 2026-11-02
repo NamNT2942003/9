@@ -2,6 +2,7 @@
 
 - **Repository**: [NamNT2942003/9](https://github.com/NamNT2942003/9)
 - **Tác giả**: NamNTHE176286
+- **Docker Hub**: [https://hub.docker.com/r/namnt2942003/payment-service](https://hub.docker.com/r/namnt2942003/payment-service)
 
 ---
 
@@ -10,6 +11,7 @@
 1. [Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản (GitLab CI)](#-bài-tập-1-khắc-phục-sự-cố-pipeline-cicd-cơ-bản-gitlab-ci)
 2. [Bài tập 2: Container hóa ứng dụng Spring Boot Microservices (Dockerfile)](#-bài-tập-2-container-hóa-ứng-dụng-spring-boot-microservices-dockerfile)
 3. [Bài tập 3: Xây dựng Pipeline CI/CD kết nối PostgreSQL (GitLab CI Services)](#-bài-tập-3-xây-dựng-pipeline-cicd-kết-nối-postgresql-gitlab-ci-services)
+4. [Bài tập 4: Đẩy Docker Image lên Docker Hub thông qua GitLab CI (DinD)](#-bài-tập-4-đẩy-docker-image-lên-docker-hub-thông-qua-gitlab-ci-dind)
 
 ---
 
@@ -28,7 +30,6 @@
 
 > Chi tiết xem tại file: [BAITAP2_GIAI_THICH.md](./BAITAP2_GIAI_THICH.md) và file [`Dockerfile`](./Dockerfile)
 
-### Nội dung file `Dockerfile`:
 ```dockerfile
 # 1. Chọn base image chứa JRE 17 gọn nhẹ
 FROM eclipse-temurin:17-jre-alpine
@@ -50,24 +51,29 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 
 ## 🐘 Bài tập 3: Xây dựng Pipeline CI/CD kết nối PostgreSQL (GitLab CI Services)
 
-> Chi tiết xem tại file: [BAITAP3_GIAI_THICH.md](./BAITAP3_GIAI_THICH.md) và file cấu hình [`.gitlab-ci.yml`](./.gitlab-ci.yml)
+> Chi tiết xem tại file: [BAITAP3_GIAI_THICH.md](./BAITAP3_GIAI_THICH.md)
 
-### 1. Cấu hình `.gitlab-ci.yml` chuẩn xác
+- **Tuần tự**: Stage `test` chạy trước, nếu pass mới chuyển sang `build` (ngăn chặn build mã nguồn có lỗi logic).
+- **`services`**: Khởi chạy container `postgres:14-alpine` song song, cung cấp Database tạm thời cho Integration Test, truy cập qua DNS hostname `postgres`.
+- **`artifacts`**: Lưu giữ file JAR trong `build/libs/*.jar` với hạn sử dụng `expire_in: 1 day`.
+
+---
+
+## 🚢 Bài tập 4: Đẩy Docker Image lên Docker Hub thông qua GitLab CI (DinD)
+
+> Chi tiết xem tại file: [BAITAP4_GIAI_THICH.md](./BAITAP4_GIAI_THICH.md) và file cấu hình [`.gitlab-ci.yml`](./.gitlab-ci.yml)
+
+### 1. Cấu hình Pipeline CI/CD hoàn chỉnh (3 Stages: Test ➔ Build ➔ Dockerize)
+
 ```yaml
-# Sử dụng image Gradle tích hợp sẵn JDK 17
-image: gradle:7.6-jdk17
-
-# Định nghĩa 2 stages chạy tuần tự: test trước, build sau
 stages:
   - test
   - build
+  - dockerize
 
-before_script:
-  - chmod +x ./gradlew
-
-# Stage 1: Chạy Unit & Integration Test với PostgreSQL Service
 test_job:
   stage: test
+  image: gradle:7.6-jdk17
   services:
     - name: postgres:14-alpine
       alias: postgres
@@ -78,22 +84,44 @@ test_job:
     SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/hrm_db"
     SPRING_DATASOURCE_USERNAME: "postgres"
     SPRING_DATASOURCE_PASSWORD: "password123"
+  before_script:
+    - chmod +x ./gradlew
   script:
     - ./gradlew test
 
-# Stage 2: Đóng gói ứng dụng thành file JAR và lưu trữ artifact
 build_job:
   stage: build
+  image: gradle:7.6-jdk17
+  before_script:
+    - chmod +x ./gradlew
   script:
     - ./gradlew build -x test
   artifacts:
-    name: "personnel-service-build-$CI_COMMIT_SHORT_SHA"
+    name: "payment-service-build-$CI_COMMIT_SHORT_SHA"
     paths:
       - build/libs/*.jar
     expire_in: 1 day
+
+dockerize_job:
+  stage: dockerize
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    IMAGE_NAME: "$DOCKER_USERNAME/payment-service"
+  dependencies:
+    - build_job
+  before_script:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" -t "$IMAGE_NAME:latest" .
+    - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_NAME:latest"
 ```
 
-### 2. Điểm cốt lõi kỹ thuật
-- **Tuần tự**: Stage `test` chạy trước, nếu pass mới chuyển sang `build` (ngăn chặn build mã nguồn có lỗi logic).
-- **`services`**: Khởi chạy container `postgres:14-alpine` song song, cung cấp Database tạm thời cho Integration Test, truy cập qua DNS hostname `postgres`.
-- **`artifacts`**: Lưu giữ file JAR trong `build/libs/*.jar` với hạn sử dụng `expire_in: 1 day`.
+### 2. Thiết lập CI/CD Variables trên GitLab
+- `DOCKER_USERNAME`: Tên đăng nhập Docker Hub (ví dụ `namnt2942003`).
+- `DOCKER_PASSWORD`: Personal Access Token từ Docker Hub (được cấu hình cờ **Masked** để ẩn trên log build).
+- **Link Docker Hub**: [https://hub.docker.com/r/namnt2942003/payment-service](https://hub.docker.com/r/namnt2942003/payment-service)

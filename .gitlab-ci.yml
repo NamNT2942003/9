@@ -1,30 +1,23 @@
 # ========================================================
-# GitLab CI/CD Pipeline - Quản lý nhân sự / Microservices
-# Bài tập 3: Xây dựng Pipeline CI/CD kết nối PostgreSQL
+# GitLab CI/CD Pipeline - Microservices Platform
+# Bài tập 4: Đẩy Docker Image lên Docker Hub qua GitLab CI
 # ========================================================
 
-# Sử dụng image Gradle tích hợp sẵn JDK 17
-image: gradle:7.6-jdk17
-
-# Định nghĩa 2 stages chạy tuần tự: test trước, build sau
+# Danh sách các stages thực thi tuần tự: test -> build -> dockerize
 stages:
   - test
   - build
-
-# Cấp quyền thực thi cho Gradle Wrapper trước khi chạy các script
-before_script:
-  - chmod +x ./gradlew
+  - dockerize
 
 # ========================================================
 # Stage 1: Chạy Unit & Integration Test với PostgreSQL Service
 # ========================================================
 test_job:
   stage: test
-  # Khởi chạy Database container chạy song song trong suốt quá trình test
+  image: gradle:7.6-jdk17
   services:
     - name: postgres:14-alpine
       alias: postgres
-  # Cấu hình các biến môi trường cho PostgreSQL và Spring Boot Datasource
   variables:
     POSTGRES_DB: hrm_db
     POSTGRES_USER: postgres
@@ -32,19 +25,48 @@ test_job:
     SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/hrm_db"
     SPRING_DATASOURCE_USERNAME: "postgres"
     SPRING_DATASOURCE_PASSWORD: "password123"
+  before_script:
+    - chmod +x ./gradlew
   script:
     - ./gradlew test
 
 # ========================================================
 # Stage 2: Đóng gói ứng dụng thành file JAR và lưu trữ artifact
-# Chỉ thực thi khi stage test hoàn thành thành công
 # ========================================================
 build_job:
   stage: build
+  image: gradle:7.6-jdk17
+  before_script:
+    - chmod +x ./gradlew
   script:
     - ./gradlew build -x test
   artifacts:
-    name: "personnel-service-build-$CI_COMMIT_SHORT_SHA"
+    name: "payment-service-build-$CI_COMMIT_SHORT_SHA"
     paths:
       - build/libs/*.jar
     expire_in: 1 day
+
+# ========================================================
+# Stage 3: Build Docker Image và Push lên Docker Hub (Docker-in-Docker)
+# ========================================================
+dockerize_job:
+  stage: dockerize
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  variables:
+    # Cấu hình biến môi trường cho Docker daemon (tắt TLS certs để DinD kết nối qua daemon port tiêu chuẩn)
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    IMAGE_NAME: "$DOCKER_USERNAME/payment-service"
+  dependencies:
+    - build_job
+  before_script:
+    # Đăng nhập an toàn vào Docker Hub sử dụng CI/CD Variables (không lộ credentials)
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    # Build Docker Image từ Dockerfile và file JAR lấy từ artifacts
+    - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" -t "$IMAGE_NAME:latest" .
+    # Push image lên Docker Hub với cả commit SHA tag và latest tag
+    - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_NAME:latest"

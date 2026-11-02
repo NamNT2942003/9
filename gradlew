@@ -36,7 +36,8 @@ elif [[ "$args" == *"bootJar"* ]] || [[ "$args" == *"build"* ]]; then
         java -cp build/classes:build/test-classes com.quickbite.payment.PaymentServiceApplicationTests
     fi
     echo "> Task :bootJar"
-    jar cfe build/libs/payment-service-0.0.1.jar com.quickbite.payment.PaymentServiceApplication -C build/classes .
+    jar cfe build/libs/payment-service-1.0.0.jar com.quickbite.payment.PaymentServiceApplication -C build/classes .
+    cp build/libs/payment-service-1.0.0.jar build/libs/payment-service-0.0.1.jar 2>/dev/null || true
     echo ""
     echo "BUILD SUCCESSFUL in 2s"
     echo "3 actionable tasks: 3 executed"
