@@ -1,91 +1,36 @@
-# Báo Cáo Bài Tập 1: Khắc Phục Sự Cố Pipeline CI/CD Cơ Bản (GitLab CI)
+# Báo Cáo Tổng Hợp Thực Hành DevOps & CI/CD
 
-## 📌 Thông tin bài tập
 - **Repository**: [NamNT2942003/9](https://github.com/NamNT2942003/9)
-- **Module**: `User Service`
-- **Mục tiêu**:
-  - Khắc phục sự cố pipeline GitLab CI/CD của module `User Service`.
-  - Phân tích và chỉ rõ nguyên nhân gây ra lỗi `command not found` và lỗi cú pháp.
-  - Viết lại cấu hình `.gitlab-ci.yml` chuẩn xác, tối ưu và đảm bảo đóng gói bàn giao demo.
+- **Tác giả**: NamNTHE176286
 
 ---
 
-## 1. Tình huống nghiệp vụ & Đoạn cấu hình bị lỗi
+## 📑 Danh mục bài tập
 
-Lập trình viên trước đã tạo file `.gitlab-ci.yml` như sau:
+1. [Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản (GitLab CI)](#-bài-tập-1-khắc-phục-sự-cố-pipeline-cicd-cơ-bản-gitlab-ci)
+2. [Bài tập 2: Container hóa ứng dụng Spring Boot Microservices (Dockerfile)](#-bài-tập-2-container-hóa-ứng-dụng-spring-boot-microservices-dockerfile)
 
+---
+
+## 🚀 Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản (GitLab CI)
+
+> Chi tiết xem tại file: [BAITAP1_GIAI_THICH.md](./BAITAP1_GIAI_THICH.md) và cấu hình [`.gitlab-ci.yml`](./.gitlab-ci.yml)
+
+### 1. Phân tích 2 lỗi cốt lõi trong file `.gitlab-ci.yml` ban đầu
+- **Lỗi 1 (Sai cú pháp mảng YAML trong `stages`)**: Khai báo `stages:` thiếu dấu gạch đầu dòng `- ` trước `build_app`. Trong GitLab CI schema, `stages` bắt buộc phải là mảng chuỗi (`array of strings`).
+- **Lỗi 2 (Thiếu Docker image chứa Java/Gradle)**: Runner mặc định không cài đặt sẵn JDK hay Gradle. Khi thực thi `./gradlew clean build -x test`, hệ thống báo lỗi `command not found` vì thiếu `java` trong `$PATH`.
+- **Cải tiến**: Thêm `before_script: chmod +x ./gradlew` và định nghĩa `artifacts` để lưu trữ file JAR phục vụ demo.
+
+### 2. Cấu hình `.gitlab-ci.yml` hoàn chỉnh
 ```yaml
-stages:
-  build_app
-
-build_job:
-  stage: build_app
-  script:
-    - ./gradlew clean build -x test
-```
-
-Pipeline liên tục bị lỗi ngay từ bước khởi tạo với thông báo `command not found`.
-
----
-
-## 2. Phân tích nguyên nhân lỗi
-
-Cấu hình trên có **2 lỗi/thiếu sót cốt lõi**:
-
-### ❌ Lỗi 1: Sai cú pháp khai báo mảng `stages` trong YAML
-- **Hiện trạng**:
-  ```yaml
-  stages:
-    build_app
-  ```
-- **Nguyên nhân**:
-  - Trong GitLab CI, `stages` là từ khóa dùng để định danh danh sách các giai đoạn theo thứ tự thực hiện. Giá trị của `stages` **bắt buộc phải là một mảng chuỗi (array/sequence of strings)**.
-  - Quy chuẩn cú pháp YAML quy định các phần tử trong danh sách phải bắt đầu bằng ký tự gạch đầu dòng kèm khoảng trắng (`- `).
-  - Khai báo thiếu dấu `- ` khiến YAML parser nhận diện `build_app` là kiểu dữ liệu chuỗi/vô hướng (scalar) thay vì danh sách, vi phạm schema xác thực cấu hình của GitLab CI (`jobs:stages config should be an array of strings`), dẫn đến pipeline bị lỗi cú pháp ngay khi nạp file cấu hình.
-- **Cách khắc phục**: Thêm dấu `- ` trước tên stage:
-  ```yaml
-  stages:
-    - build_app
-  ```
-
-### ❌ Lỗi 2: Thiếu định nghĩa Docker `image` chứa môi trường Java & Gradle
-- **Hiện trạng**: File cấu hình hoàn toàn không khai báo từ khóa `image:`.
-- **Nguyên nhân**:
-  - GitLab Runner (với Docker executor) khi không tìm thấy chỉ thị `image:` sẽ tự động nạp image mặc định của hệ thống (thường là `ruby:latest` hoặc các base image Linux tối giản).
-  - Các Docker image mặc định này không cài đặt sẵn môi trường Java (JDK/JRE) hay Gradle.
-  - Gradle Wrapper (`./gradlew`) là script khởi động yêu cầu lệnh `java` có sẵn trong biến môi trường hệ thống (`$PATH`). Khi runner gọi `./gradlew clean build -x test`:
-    - Shell không tìm thấy runtime `java`, dẫn đến lỗi `ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.` hoặc `command not found`.
-- **Cách khắc phục**: Khai báo image chính thức chứa môi trường Gradle và JDK 17:
-  ```yaml
-  image: gradle:8.5-jdk17
-  ```
-
-### 💡 Điểm bổ sung tối ưu (Best Practices):
-1. **Cấp quyền thực thi (`chmod +x ./gradlew`)**: Khi mã nguồn được quản lý trên môi trường Windows hoặc Git chưa lưu thuộc tính file execute bit, runner Linux sẽ báo lỗi `Permission denied`. Việc bổ sung `before_script: chmod +x ./gradlew` đảm bảo script luôn có quyền thực thi.
-2. **Lưu trữ Artifacts (`artifacts`)**: Dự án cần bản build để demo gấp cho khách hàng. Thêm cấu hình `artifacts` giúp lưu giữ file `.jar` sau khi build xong trong thư mục `build/libs/`.
-
----
-
-## 3. Nội dung file `.gitlab-ci.yml` hoàn chỉnh
-
-```yaml
-# ========================================================
-# GitLab CI/CD Pipeline - User Service
-# Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản
-# ========================================================
-
-# 1. Khai báo Docker image chứa JDK 17 & Gradle
 image: gradle:8.5-jdk17
 
-# 2. Sửa cú pháp mảng stages chuẩn YAML
 stages:
   - build_app
 
-# 3. Đảm bảo quyền thực thi cho Gradle wrapper
 before_script:
   - chmod +x ./gradlew
 
-# 4. Job thực hiện build ứng dụng và lưu trữ artifact demo
 build_job:
   stage: build_app
   script:
@@ -99,11 +44,35 @@ build_job:
 
 ---
 
-## 4. Bảng tổng hợp đối chiếu
+## 🐳 Bài tập 2: Container hóa ứng dụng Spring Boot Microservices (Dockerfile)
 
-| Tiêu chí | File gốc (Lỗi) | File sửa đổi (Chuẩn) | Ý nghĩa xử lý |
-| :--- | :--- | :--- | :--- |
-| **Môi trường chạy (`image`)** | Không có | `image: gradle:8.5-jdk17` | Khắc phục lỗi thiếu JDK/Gradle (`command not found`). |
-| **Cú pháp mảng (`stages`)** | `stages:`<br>&nbsp;&nbsp;`build_app` | `stages:`<br>&nbsp;&nbsp;`- build_app` | Khắc phục lỗi cú pháp YAML và schema validation của GitLab CI. |
-| **Quyền file (`before_script`)**| Không có | `- chmod +x ./gradlew` | Tránh lỗi `Permission denied` trên môi trường Linux container. |
-| **Bàn giao kết quả (`artifacts`)**| Không có | `paths: [build/libs/*.jar]` | Lưu trữ file build JAR để bàn giao demo cho khách hàng. |
+> Chi tiết xem tại file: [BAITAP2_GIAI_THICH.md](./BAITAP2_GIAI_THICH.md) và file [`Dockerfile`](./Dockerfile)
+
+### 1. Nội dung file `Dockerfile` chuẩn xác
+
+```dockerfile
+# 1. Chọn base image chứa JRE 17 gọn nhẹ
+FROM eclipse-temurin:17-jre-alpine
+
+# 2. Tạo thư mục làm việc trong container
+WORKDIR /app
+
+# 3. Copy file jar từ thư mục build của Gradle vào container
+COPY build/libs/payment-service-1.0.0.jar app.jar
+
+# 4. Mở port 8080 để giao tiếp với các microservices khác
+EXPOSE 8080
+
+# 5. Lệnh khởi chạy ứng dụng Spring Boot
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+### 2. Bảng phân tích chi tiết các keywords
+
+| Keyword | Cú pháp áp dụng | Vai trò kỹ thuật |
+| :--- | :--- | :--- |
+| **`FROM`** | `FROM eclipse-temurin:17-jre-alpine` | Sử dụng JRE 17 trên nền tảng Alpine Linux siêu nhẹ (~150MB), tối ưu kích thước và bảo mật so với JDK đầy đủ. |
+| **`WORKDIR`** | `WORKDIR /app` | Thiết lập không gian làm việc cô lập trong container, mọi lệnh sau đó chạy tương đối tại `/app`. |
+| **`COPY`** | `COPY build/libs/payment-service-1.0.0.jar app.jar` | Đưa file JAR sau build vào container và chuẩn hóa tên thành `app.jar`. |
+| **`EXPOSE`** | `EXPOSE 8080` | Khai báo cổng 8080 mà service Spring Boot lắng nghe, phục vụ kết nối mạng giữa các microservices. |
+| **`ENTRYPOINT`** | `ENTRYPOINT ["java", "-jar", "app.jar"]` | Định dạng Exec Form giúp Java chạy với PID 1, hỗ trợ bắt tín hiệu Graceful Shutdown (`SIGTERM`). |
