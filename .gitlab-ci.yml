@@ -1,27 +1,50 @@
 # ========================================================
-# GitLab CI/CD Pipeline - User Service
-# Bài tập 1: Khắc phục sự cố Pipeline CI/CD cơ bản
+# GitLab CI/CD Pipeline - Quản lý nhân sự / Microservices
+# Bài tập 3: Xây dựng Pipeline CI/CD kết nối PostgreSQL
 # ========================================================
 
-# 1. Định nghĩa Docker image chứa môi trường Java JDK 17 và Gradle
-# Khắc phục lỗi: GitLab Runner mặc định không có môi trường Java/Gradle gây lỗi "command not found"
-image: gradle:8.5-jdk17
+# Sử dụng image Gradle tích hợp sẵn JDK 17
+image: gradle:7.6-jdk17
 
-# 2. Định nghĩa danh sách các stages theo đúng chuẩn cú pháp mảng YAML (bắt đầu bằng dấu - )
+# Định nghĩa 2 stages chạy tuần tự: test trước, build sau
 stages:
-  - build_app
+  - test
+  - build
 
-# 3. Cấp quyền thực thi cho file gradlew trước khi chạy script
+# Cấp quyền thực thi cho Gradle Wrapper trước khi chạy các script
 before_script:
   - chmod +x ./gradlew
 
-# 4. Job thực hiện build ứng dụng
-build_job:
-  stage: build_app
+# ========================================================
+# Stage 1: Chạy Unit & Integration Test với PostgreSQL Service
+# ========================================================
+test_job:
+  stage: test
+  # Khởi chạy Database container chạy song song trong suốt quá trình test
+  services:
+    - name: postgres:14-alpine
+      alias: postgres
+  # Cấu hình các biến môi trường cho PostgreSQL và Spring Boot Datasource
+  variables:
+    POSTGRES_DB: hrm_db
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: password123
+    SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/hrm_db"
+    SPRING_DATASOURCE_USERNAME: "postgres"
+    SPRING_DATASOURCE_PASSWORD: "password123"
   script:
-    - ./gradlew clean build -x test
+    - ./gradlew test
+
+# ========================================================
+# Stage 2: Đóng gói ứng dụng thành file JAR và lưu trữ artifact
+# Chỉ thực thi khi stage test hoàn thành thành công
+# ========================================================
+build_job:
+  stage: build
+  script:
+    - ./gradlew build -x test
   artifacts:
-    name: "user-service-build-$CI_COMMIT_SHORT_SHA"
+    name: "personnel-service-build-$CI_COMMIT_SHORT_SHA"
     paths:
       - build/libs/*.jar
-    expire_in: 1 week
+    expire_in: 1 day
